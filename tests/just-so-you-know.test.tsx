@@ -1,4 +1,4 @@
-import type { On } from "claude-code"
+import type { On, SessionMessage } from "claude-code"
 import type { Engine } from "claude-code/testing"
 import { expect, mock, test } from "claude-code/testing"
 
@@ -76,6 +76,10 @@ test("a check on the 6th step shares the note with the main agent without asking
   const rows = session.appended().map(row => JSON.stringify(row.message.content))
   expect(rows.some(row => row.includes("Here is a note offered by a side agent (Just So You Know)"))).toBe(true)
   expect(rows.some(row => row.includes(`Heads up · ${LINE}`))).toBe(true)
+  const notices = session.appended().filter(row => row.message.type === "system")
+  expect(notices.map(row => JSON.stringify(row.message.content))).toEqual([
+    expect.stringContaining(`Just So You Know told the main agent: Heads up · ${LINE}`),
+  ])
   expect(toasts).toEqual([`Just So You Know told the main agent: ${LINE}`])
 
   await step($, "t1", 12)
@@ -111,6 +115,42 @@ test("the main agent's reaction is judged, and checks resume once it is", async 
 
   await step($, "t2", 6)
   await eventually($, () => forks.length === 2)
+})
+
+test("the reaction is judged even when the session's messages leave out the hidden note", async ($, on) => {
+  const { findings } = world(on)
+  const earlier: SessionMessage[] = [
+    { role: "user", text: "Fix the page cache for the shop.", toolUses: [] },
+    { role: "assistant", text: "Working on it.", toolUses: [] },
+  ]
+  const conversation = [...earlier]
+  on("session.messages", () => ({ value: [...conversation] }))
+  on("model.complete", () => ({
+    value: { isAnswered: true, text: "verdict: helped\nevidence: It kept the listing off main.", usage: USAGE },
+  }))
+  await $.session.start({ cwd: "/work/shop", surface: "terminal", isInteractive: true })
+
+  await step($, "t1", 6)
+  await eventually($, () => findings().length === 1)
+  conversation.push({ role: "assistant", text: "Good point, I'll keep the listing on a branch.", toolUses: [] })
+  await $.turn.complete({ answer: "done", durationMs: 1, isAborted: false, turnId: "t1", reason: "answer" })
+  await eventually($, () => findings()[0]?.verdict !== undefined)
+
+  expect(findings()).toEqual([expect.objectContaining({ verdict: "helped", evidence: "It kept the listing off main." })])
+})
+
+test("a note still waiting after two of the person's prompts counts as no reaction", async ($, on) => {
+  const { findings } = world(on)
+  on("prompt.submit", (_$, e) => ({ text: e.text }))
+  await $.session.start({ cwd: "/work/shop", surface: "terminal", isInteractive: true })
+
+  await step($, "t1", 6)
+  await eventually($, () => findings().length === 1)
+  await $.prompt.submit({ text: "keep going", origin: { kind: "composer" }, turnId: "t2", wait: false })
+  expect(findings()[0]?.verdict).toBeUndefined()
+  await $.prompt.submit({ text: "and the tests", origin: { kind: "composer" }, turnId: "t3", wait: false })
+
+  expect(findings()).toEqual([expect.objectContaining({ verdict: "ignored" })])
 })
 
 test("a note the side agent already shared is not shared again", async ($, on) => {

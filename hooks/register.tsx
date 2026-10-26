@@ -138,12 +138,20 @@ async function check($: EngineInterface, sessionId: string, turnId: string, step
     explanation: proposed.explanation,
     promptsSurvived: 0,
   }
+  const messageCount = await $.session
+    .messages()
+    .then(messages => messages.length)
+    .catch(() => undefined)
   const delivered = await $.session
     .append({ message: { type: "user", content: [{ type: "text", text: noteFor(finding) }] } })
     .then(result => ("deny" in result && result.deny ? result.deny : undefined))
     .catch((error: unknown) => (error instanceof Error ? error.message : String(error)))
   sharedTurns.set(sessionId, turnId)
-  await updateFindings($, findings => [...findings, { ...finding, deliveryError: delivered }])
+  await updateFindings($, findings => [...findings, { ...finding, messageCount, deliveryError: delivered }])
+  if (delivered === undefined)
+    await $.session
+      .append({ message: { type: "system", content: [{ type: "text", text: `${TITLE} told the main agent: ${finding.tag} · ${finding.line}` }] } })
+      .catch(() => undefined)
   $.ui.toast(delivered === undefined ? `${TITLE} told the main agent: ${proposed.line}` : `${TITLE} could not share a note: ${delivered}`)
 }
 
@@ -158,7 +166,8 @@ async function judge($: EngineInterface, sessionId: string) {
     const messages = await $.session.messages()
     for (const finding of open) {
       const at = messages.findLastIndex(message => message.role === "user" && message.text.includes(finding.line))
-      const after = at === -1 ? [] : messages.slice(at + 1)
+      const start = at === -1 ? finding.messageCount : at + 1
+      const after = start === undefined ? [] : messages.slice(start)
       if (!after.some(message => message.role === "assistant")) continue
       const answer = await $.model.complete({
         model: JUDGE_MODEL,
@@ -201,7 +210,7 @@ export const register: Register = on => {
     await updateFindings($, findings =>
       findings.map(finding => survived.find(one => one.id === finding.id) ?? finding),
     )
-    for (const finding of survived.filter(one => one.promptsSurvived > CLEAR_AFTER_PROMPTS))
+    for (const finding of survived.filter(one => one.promptsSurvived >= CLEAR_AFTER_PROMPTS))
       await settle($, finding.id, "ignored", `No reaction after ${CLEAR_AFTER_PROMPTS} of your prompts.`)
     return next(e)
   }).catch(($, e, next) => next(e))

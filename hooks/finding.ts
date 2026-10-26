@@ -13,6 +13,7 @@ export type Finding = {
   line: string
   explanation?: string
   promptsSurvived: number
+  messageCount?: number
   verdict?: Verdict
   evidence?: string
   judgedAt?: number
