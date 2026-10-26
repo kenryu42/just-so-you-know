@@ -65,6 +65,9 @@ function world(on: On, { entries = {}, files = {}, reply = () => SIDE_AGENT_REPL
     closed.push(e.id)
     return { value: undefined }
   })
+  on("ui.panes", () => ({
+    value: opened.filter(id => !closed.includes(id)).map(id => ({ id, title: id, isShown: true, isFocused: true, isPlaced: true })),
+  }))
   on("ui.copy", (_$, e) => {
     copied.push(e.text)
     return { value: { isCopied: true } }
@@ -424,5 +427,19 @@ test("the panel copies the agents folder's path", async ($, on) => {
   await ui.press({ key: "copy" })
 
   expect(copied).toEqual([AGENTS])
+  await ui.unmount()
+})
+
+test("a side agent file added while the panel is open shows up without reopening it", async ($, on) => {
+  const { disk } = world(on)
+  const clock = mock.clock(on)
+  await $.command.run({ command: "jsyk", args: "", origin: { kind: "composer" }, presentation: { isFullscreen: false, columns: 120 } })
+  const ui = await $.ui.mount(PANE)
+  expect(await ui.find({ type: "Button", key: "agent:evidence" })).toBeUndefined()
+
+  disk.set(`${AGENTS}/evidence.md`, EVIDENCE_FILE[`${AGENTS}/evidence.md`])
+  await clock.advance(3000)
+
+  expect((await ui.find({ type: "Button", key: "agent:evidence" }))?.text).toMatch(/on/)
   await ui.unmount()
 })

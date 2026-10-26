@@ -1,4 +1,4 @@
-import type { EngineInterface, Register, SessionMessage } from "claude-code"
+import type { EngineInterface, Register, SessionMessage, Timer } from "claude-code"
 
 import { findingsOf, isOpen, VERDICTS, type Finding, type Verdict } from "./finding"
 import { lineKey, parseProposed } from "./parse"
@@ -17,6 +17,7 @@ const JUDGE_MODEL = "haiku"
 const DATA_DIR = ".claude/just-so-you-know"
 const BUILT_IN = "understanding"
 const PANE = "just-so-you-know"
+const AGENTS_POLL_MS = 2000
 
 const looksToSkipAfter = (passedOver: number) =>
   passedOver <= PASSED_OVER_FREE ? 0 : Math.min(LOOKS_TO_SKIP_MAX, 2 ** (passedOver - PASSED_OVER_FREE - 1))
@@ -80,6 +81,9 @@ const parseJudgement = (text: string) => {
 }
 
 let panelError: string | undefined
+// No file events reach a mod, so the open panel polls the agents folder and redraws when it changes.
+let agentsWatch: Timer | undefined
+let agentsDrawn = ""
 
 const checking = new Set<string>()
 const judging = new Set<string>()
@@ -333,6 +337,15 @@ export const register: Register = on => {
     const agents = await allAgents($)
     const findings = findingsOf(await $.store.get("findings"))
     const redraw = () => $.ui.invalidate("ui.render")
+    agentsDrawn = JSON.stringify(agents)
+    agentsWatch ??= $.clock.every(AGENTS_POLL_MS, () => {
+      void (async () => {
+        if (!(await $.ui.panes()).some(pane => pane.id === PANE)) {
+          agentsWatch?.cancel()
+          agentsWatch = undefined
+        } else if (JSON.stringify(await allAgents($)) !== agentsDrawn) await redraw()
+      })().catch(() => undefined)
+    })
     const failed = (error: unknown) => {
       panelError = error instanceof Error ? error.message : String(error)
       redraw()
@@ -378,7 +391,7 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="row" justifyContent="space-between" gap={2}>
           <Text bold>Side agents</Text>
-          <Button key="close" label="Close" hotkey="x" onPress={() => $.ui.close({ id: PANE })} />
+          <Button key="close" label="Close" hotkey="x" plain onPress={() => $.ui.close({ id: PANE })} />
         </Box>
         <Box flexDirection="column">
           {agents.map(agent => {
@@ -406,8 +419,8 @@ export const register: Register = on => {
         )}
         {panelError !== undefined && <Text color="red">{panelError}</Text>}
         <Box flexDirection="row" gap={2}>
-          <Button key="report" label="Open report" hotkey="r" onPress={() => openReport().catch(failed)} />
-          <Button key="copy" label="Copy agents folder path" hotkey="c" onPress={press => $.ui.copy({ text: `${dir}/agents`, surface: press.surface }).then(() => $.ui.toast(`Copied ${dir}/agents`)).catch(failed)} />
+          <Button key="report" label="Open report" hotkey="r" plain onPress={() => openReport().catch(failed)} />
+          <Button key="copy" label="Copy agents folder path" hotkey="c" plain onPress={press => $.ui.copy({ text: `${dir}/agents`, surface: press.surface }).then(() => $.ui.toast(`Copied ${dir}/agents`)).catch(failed)} />
         </Box>
       </Box>
     )
