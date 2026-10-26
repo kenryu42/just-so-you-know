@@ -3,7 +3,7 @@ import type { EngineInterface, Register, SessionMessage } from "claude-code"
 import { findingsOf, isOpen, VERDICTS, type Finding, type Verdict } from "./finding"
 import { lineKey, parseProposed } from "./parse"
 import { proposePrompt } from "./prompt"
-import { reportHtml, stateOf } from "./report"
+import { reportHtml } from "./report"
 
 const CHECK_EVERY = 6
 const CLEAR_AFTER_PROMPTS = 2
@@ -11,7 +11,6 @@ const SEEN_MAX = 50
 const FINDINGS_MAX = 200
 const LOOKS_TO_SKIP_MAX = 16
 const PASSED_OVER_FREE = 2
-const PANE = "just-so-you-know"
 const TITLE = "Just So You Know"
 const JUDGE_MODEL = "haiku"
 
@@ -21,23 +20,6 @@ const stringsOf = (value: unknown) =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
 const countOf = (value: unknown) =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0
-
-const VERDICT_LABELS: Record<ReturnType<typeof stateOf>, string> = {
-  helped: "helped",
-  acknowledged: "acknowledged",
-  already_aware: "already aware",
-  ignored: "no reaction",
-  pending: "waiting for the main agent",
-  undelivered: "not delivered",
-}
-const VERDICT_COLORS: Record<ReturnType<typeof stateOf>, string> = {
-  helped: "success",
-  acknowledged: "warning",
-  already_aware: "suggestion",
-  ignored: "error",
-  pending: "subtle",
-  undelivered: "subtle",
-}
 
 const noteFor = (finding: Finding) => {
   const quoted = [`${finding.tag} · ${finding.line}`, ...(finding.explanation ? ["", finding.explanation] : [])]
@@ -108,7 +90,6 @@ async function openInBrowser($: EngineInterface, path: string) {
 
 async function updateFindings($: EngineInterface, change: (findings: Finding[]) => Finding[]) {
   await $.store.set("findings", change(findingsOf(await $.store.get("findings"))).slice(-FINDINGS_MAX))
-  $.ui.invalidate("ui.render")
 }
 
 async function settle($: EngineInterface, id: string, verdict: Verdict, evidence: string) {
@@ -199,8 +180,7 @@ export const register: Register = on => {
     projects.set(await $.session.id(), e.cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "")
     await $.command.register({
       name: "jsyk",
-      description: "Just So You Know: open the live pane, or `report` to write the full report as a page",
-      argumentHint: "[report]",
+      description: "Just So You Know: write the report of every session's notes as a page and open it",
     })
     return next(e)
   })
@@ -250,49 +230,12 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on("command.run", { command: "jsyk" }, async ($, e) => {
-    if (e.args.trim() !== "report") {
-      await $.ui.open({ id: PANE, title: TITLE })
-      return { text: `Opened the ${TITLE} pane. Run /jsyk report for the full report.` }
-    }
+  on("command.run", { command: "jsyk" }, async $ => {
     const home = await $.env.get("HOME")
     if (!home) return { text: "Could not find your home folder to write the report." }
     const path = `${home}/.claude/just-so-you-know/report.html`
     await $.fs.write(path, reportHtml(findingsOf(await $.store.get("findings")), Date.now()))
     const isOpened = await openInBrowser($, path)
     return { text: `Wrote the report of every session's notes: file://${path}${isOpened ? " (Opened it in your browser.)" : ""}` }
-  })
-
-  on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const sessionId = await $.session.id()
-    const all = findingsOf(await $.store.get("findings"))
-    const mine = all.filter(finding => finding.sessionId === sessionId).reverse()
-    const helped = all.filter(finding => finding.verdict === "helped").length
-    return (
-      <Box flexDirection="column" gap={1}>
-        <Box flexDirection="row" justifyContent="space-between" gap={2}>
-          <Text dimColor>
-            This session: {mine.length} shared. All sessions: {all.length} shared, {helped} helped.
-          </Text>
-          <Button key="close" label="Close" hotkey="x" onPress={() => $.ui.close({ id: PANE })} />
-        </Box>
-        {mine.length === 0 && (
-          <Text dimColor>No notes yet. The side agent checks about every {CHECK_EVERY} steps and shares only what clears a high bar.</Text>
-        )}
-        {mine.map(finding => (
-          <Box flexDirection="column">
-            <Text>
-              <Text bold>{finding.tag}</Text> · {finding.line}
-            </Text>
-            <Text>
-              <Text color={VERDICT_COLORS[stateOf(finding)]}>{VERDICT_LABELS[stateOf(finding)]}</Text>
-              {finding.evidence || finding.deliveryError ? <Text dimColor> · {finding.evidence ?? finding.deliveryError}</Text> : ""}
-            </Text>
-          </Box>
-        ))}
-        <Text dimColor>/jsyk report writes the full report as a page.</Text>
-      </Box>
-    )
   })
 }

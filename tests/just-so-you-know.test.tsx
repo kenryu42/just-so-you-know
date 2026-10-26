@@ -26,7 +26,6 @@ function world(on: On, entries: Record<string, unknown> = {}) {
   on("session.id", () => ({ value: "s1" }))
   on("session.surfaces", () => ({ value: ["terminal"] }))
   on("command.register", () => ({ value: { command: "jsyk" } }))
-  on("ui.invalidate", () => ({ value: undefined }))
   on("ui.toast", (_$, e) => {
     toasts.push(e.text)
     return { value: undefined }
@@ -165,7 +164,7 @@ test("a note the side agent already shared is not shared again", async ($, on) =
   expect(toasts).toEqual([])
 })
 
-test("/jsyk report writes one page with every session's notes and opens it", async ($, on) => {
+test("/jsyk writes one page with every session's notes and opens it", async ($, on) => {
   world(on, {
     findings: [
       { id: "a", sessionId: "s1", project: "shop", turnId: "t1", step: 6, sharedAt: 1, tag: "Heads up", line: LINE, promptsSurvived: 0, verdict: "helped", evidence: "It added the locale." },
@@ -189,7 +188,7 @@ test("/jsyk report writes one page with every session's notes and opens it", asy
     return e.argv[0] === "open" ? { deny: "open: command not found" } : { value: { exitCode: 0, stdout: "", stderr: "", isStdoutTruncated: false, isStderrTruncated: false } }
   })
 
-  const ran = await $.command.run({ command: "jsyk", args: "report", origin: { kind: "composer" }, presentation: { isFullscreen: false, columns: 120 } })
+  const ran = await $.command.run({ command: "jsyk", args: "", origin: { kind: "composer" }, presentation: { isFullscreen: false, columns: 120 } })
 
   expect(written.map(file => file.path)).toEqual(["/Users/someone/.claude/just-so-you-know/report.html"])
   expect(written[0]?.text).toContain(LINE)
@@ -202,48 +201,3 @@ test("/jsyk report writes one page with every session's notes and opens it", asy
   expect(ran.text).toContain("Opened it in your browser")
   expect(submitted).toEqual([])
 })
-
-for (const surface of ["terminal", "desktop"] as const)
-  test(`the pane lists this session's notes and how they landed (${surface})`, async ($, on) => {
-    world(on, {
-      findings: [
-        { id: "a", sessionId: "s1", project: "shop", turnId: "t1", step: 6, sharedAt: 1, tag: "Heads up", line: LINE, promptsSurvived: 0, verdict: "already_aware", evidence: "It said the locale was already handled." },
-        { id: "b", sessionId: "other", project: "blog", turnId: "t9", step: 6, sharedAt: 2, tag: "You should know", line: "Another session's note.", promptsSurvived: 0 },
-      ],
-    })
-
-    const ui = await $.ui.mount({
-      plugin: "just-so-you-know",
-      surface,
-      component: "Pane",
-      requestId: "just-so-you-know",
-      props: { title: "Just So You Know", isFocused: false, bodyColumns: 80, placement: "dock", scroll: { offset: 0, bodyRows: 30 }, view: {} },
-    })
-
-    expect((await ui.find({ type: "Text", text: LINE }))?.text).toContain("Heads up")
-    expect((await ui.find({ type: "Text", text: /already aware/ }))?.text).toContain("It said the locale was already handled.")
-    expect(await ui.find({ type: "Text", text: "Another session's note." })).toBeUndefined()
-    await ui.unmount()
-  })
-
-for (const surface of ["terminal", "desktop"] as const)
-  test(`the pane's own Close button closes it (${surface})`, async ($, on) => {
-    world(on)
-    const closed: string[] = []
-    on("ui.close", (_$, e) => {
-      closed.push(e.id)
-      return { value: undefined }
-    })
-
-    const ui = await $.ui.mount({
-      plugin: "just-so-you-know",
-      surface,
-      component: "Pane",
-      requestId: "just-so-you-know",
-      props: { title: "Just So You Know", isFocused: false, bodyColumns: 80, placement: "dock", scroll: { offset: 0, bodyRows: 30 }, view: {} },
-    })
-    await ui.press({ key: "close" })
-
-    expect(closed).toEqual(["just-so-you-know"])
-    await ui.unmount()
-  })

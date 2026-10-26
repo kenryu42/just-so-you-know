@@ -34,7 +34,7 @@ const explanationHtml = (text: string) =>
     .join("")
     .replace(/(<li>.*?<\/li>)+/g, list => `<ul>${list}</ul>`)
 
-export const stateOf = (finding: Finding) =>
+const stateOf = (finding: Finding) =>
   finding.deliveryError !== undefined ? "undelivered" : (finding.verdict ?? "pending")
 
 const when = (ms: number) =>
