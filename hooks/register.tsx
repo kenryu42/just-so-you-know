@@ -412,7 +412,10 @@ export const register: Register = on => {
         {Input ? (
           <Box flexDirection="column" gap={1}>
             <Input key="every" label="Check every (steps)" value={String(config.checkEvery)} submitLabel="save" onSubmit={setEvery} />
-            <Input key="create" label="New side agent" placeholder="what it should watch for" submitLabel="create" onSubmit={text => create(text).catch(failed)} />
+            <Box flexDirection="row" gap={1}>
+              <Button key="new" label="New side agent" hotkey="n" plain onPress={() => $.ui.focus({ requestId: PANE, key: "create" }).catch(failed)} />
+              <Input key="create" placeholder="what it should watch for" submitLabel="create" onSubmit={text => create(text).catch(failed)} />
+            </Box>
           </Box>
         ) : (
           <Text dimColor>Checks run every {config.checkEvery} steps. Change that or create a side agent from a terminal or the desktop app.</Text>
