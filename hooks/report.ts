@@ -57,6 +57,7 @@ const entry = (finding: Finding) => {
   <div class="meta">
     <time>${escape(when(finding.sharedAt))}</time>
     <span class="project">${escape(finding.project || "unknown project")}</span>
+    <span class="agent">${escape(finding.agent)}</span>
     <span class="tag">${escape(finding.tag)}</span>
   </div>
   <div class="body">
@@ -90,6 +91,15 @@ export function reportHtml(findings: readonly Finding[], generatedAt: number) {
           `<button type="button" class="chip" aria-pressed="false" data-filter="${item.state}"><i data-state="${item.state}"></i>${VERDICT_LABELS[item.state]} <b>${item.count}</b></button>`,
       ),
   ].join("")
+  const agents = [...new Set(findings.map(finding => finding.agent))].sort()
+  const agentRows = agents
+    .map(agent => {
+      const own = findings.filter(finding => finding.agent === agent)
+      const cells = states.map(state => `<td>${own.filter(finding => stateOf(finding) === state).length}</td>`).join("")
+      return `<tr><th scope="row">${escape(agent)}</th><td>${own.length}</td>${cells}</tr>`
+    })
+    .join("")
+  const agentTable = `<div class="agents-wrap"><table class="agents"><thead><tr><th scope="col">Side agent</th><th scope="col">Notes</th>${states.map(state => `<th scope="col">${VERDICT_LABELS[state]}</th>`).join("")}</tr></thead><tbody>${agentRows}</tbody></table></div>`
   const list = [...findings].sort((a, b) => b.sharedAt - a.sharedAt).map(entry).join("\n")
 
   return `<title>Just So You Know</title>
@@ -137,6 +147,12 @@ h1 { font: 700 clamp(32px, 6vw, 48px)/1.05 var(--display); margin: 0; text-wrap:
 .note { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 20px; padding-block: 20px; border-bottom: 1px solid var(--line); }
 .meta { display: grid; align-content: start; gap: 4px; font: 13px/1.4 var(--mono); color: var(--muted); }
 .meta time { color: var(--ink); font-variant-numeric: tabular-nums; }
+.agent { color: var(--ink); }
+.agents-wrap { overflow-x: auto; }
+.agents { border-collapse: collapse; font: 13px/1.4 var(--mono); min-width: 100%; }
+.agents th, .agents td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.agents th[scope="row"], .agents thead th:first-child { text-align: left; color: var(--ink); }
+.agents thead th { color: var(--muted); font-weight: 500; }
 .tag { justify-self: start; margin-top: 4px; font: 500 11px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
 .body { display: grid; gap: 10px; min-width: 0; }
 .line { font-size: 18px; line-height: 1.45; margin: 0; max-width: 65ch; }
@@ -156,9 +172,9 @@ footer { color: var(--muted); font: 12px/1.5 var(--mono); }
   <header>
     <span class="eyebrow">Side agent notes</span>
     <h1>Just So You Know</h1>
-    <p class="sub">Every note the side agent passed to the main agent, and how the main agent took it. ${findings.length} ${findings.length === 1 ? "note" : "notes"} across ${sessions} ${sessions === 1 ? "session" : "sessions"}.</p>
+    <p class="sub">Every note the side agents passed to the main agent, and how the main agent took it. ${findings.length} ${findings.length === 1 ? "note" : "notes"} across ${sessions} ${sessions === 1 ? "session" : "sessions"}.</p>
   </header>
-  ${findings.length === 0 ? `<p class="empty">No notes yet. The side agent checks about every 6 steps of a longer task and shares only what clears a high bar.</p>` : `<section class="summary" aria-label="Reactions"><div class="bar">${bar}</div><div class="chips">${filters}</div></section>
+  ${findings.length === 0 ? `<p class="empty">No notes yet. The side agents check about every 6 steps of a longer task and share only what clears a high bar.</p>` : `<section class="summary" aria-label="Reactions"><div class="bar">${bar}</div><div class="chips">${filters}</div>${agentTable}</section>
   <ul class="notes">
 ${list}
   </ul>`}

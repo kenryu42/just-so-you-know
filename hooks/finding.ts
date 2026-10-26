@@ -8,6 +8,7 @@ export type Finding = {
   project: string
   turnId: string
   step: number
+  agent: string
   sharedAt: number
   tag: Tag
   line: string
@@ -27,6 +28,7 @@ const isFinding = (value: unknown): value is Finding =>
   value !== null &&
   typeof (value as Finding).id === "string" &&
   typeof (value as Finding).sessionId === "string" &&
+  typeof (value as Finding).agent === "string" &&
   typeof (value as Finding).line === "string" &&
   typeof (value as Finding).sharedAt === "number"
 
