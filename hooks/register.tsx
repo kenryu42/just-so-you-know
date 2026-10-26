@@ -96,6 +96,16 @@ const ended = new Set<string>()
 const sharedTurns = new Map<string, string>()
 const projects = new Map<string, string>()
 
+const BROWSER_OPENERS = [["open"], ["xdg-open"], ["cmd", "/c", "start", ""]]
+
+async function openInBrowser($: EngineInterface, path: string) {
+  for (const opener of BROWSER_OPENERS) {
+    const ran = await $.process.run([...opener, path], { timeoutMs: 10000 }).catch(() => undefined)
+    if (ran?.exitCode === 0) return true
+  }
+  return false
+}
+
 async function updateFindings($: EngineInterface, change: (findings: Finding[]) => Finding[]) {
   await $.store.set("findings", change(findingsOf(await $.store.get("findings"))).slice(-FINDINGS_MAX))
   $.ui.invalidate("ui.render")
@@ -189,7 +199,7 @@ export const register: Register = on => {
     projects.set(await $.session.id(), e.cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "")
     await $.command.register({
       name: "jsyk",
-      description: "Just So You Know: open the live pane, or `report` to publish the full report as an artifact",
+      description: "Just So You Know: open the live pane, or `report` to write the full report as a page",
       argumentHint: "[report]",
     })
     return next(e)
@@ -240,31 +250,17 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on("tool.call", { tool: "Artifact" }, async ($, e, next) => {
-    const ran = await next(e)
-    const reportPath = await $.store.get("reportPath")
-    const url = (ran.result as { url?: unknown } | undefined)?.url
-    if (e.file_path !== undefined && e.file_path === reportPath && typeof url === "string")
-      await $.store.set("reportUrl", url)
-    return ran
-  }).catch(($, e, next) => next(e))
-
   on("command.run", { command: "jsyk" }, async ($, e) => {
     if (e.args.trim() !== "report") {
       await $.ui.open({ id: PANE, title: TITLE })
-      return { text: `Opened the ${TITLE} pane. Run /jsyk report to publish the full report.` }
+      return { text: `Opened the ${TITLE} pane. Run /jsyk report for the full report.` }
     }
     const home = await $.env.get("HOME")
     if (!home) return { text: "Could not find your home folder to write the report." }
     const path = `${home}/.claude/just-so-you-know/report.html`
     await $.fs.write(path, reportHtml(findingsOf(await $.store.get("findings")), Date.now()))
-    await $.store.set("reportPath", path)
-    const url = await $.store.get("reportUrl")
-    const target = typeof url === "string" ? ` Update the existing artifact ${url} so its link stays the same.` : ` Use the icon "notes".`
-    void $.prompt.submit({
-      text: `Publish the ${TITLE} report at ${path} as a private artifact with the Artifact tool, exactly as the file stands.${target} The just-so-you-know mod generated it. Reply with the link only.`,
-    })
-    return { text: `Wrote the report to ${path}. Asking Claude to publish it.` }
+    const isOpened = await openInBrowser($, path)
+    return { text: `Wrote the report of every session's notes: file://${path}${isOpened ? " (Opened it in your browser.)" : ""}` }
   })
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
@@ -295,7 +291,7 @@ export const register: Register = on => {
             </Text>
           </Box>
         ))}
-        <Text dimColor>/jsyk report publishes the full report.</Text>
+        <Text dimColor>/jsyk report writes the full report as a page.</Text>
       </Box>
     )
   })

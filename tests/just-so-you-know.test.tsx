@@ -165,6 +165,44 @@ test("a note the side agent already shared is not shared again", async ($, on) =
   expect(toasts).toEqual([])
 })
 
+test("/jsyk report writes one page with every session's notes and opens it", async ($, on) => {
+  world(on, {
+    findings: [
+      { id: "a", sessionId: "s1", project: "shop", turnId: "t1", step: 6, sharedAt: 1, tag: "Heads up", line: LINE, promptsSurvived: 0, verdict: "helped", evidence: "It added the locale." },
+      { id: "b", sessionId: "s2", project: "blog", turnId: "t9", step: 6, sharedAt: 2, tag: "You should know", line: "Another session's note.", promptsSurvived: 0 },
+    ],
+  })
+  mock.env(on, { HOME: "/Users/someone" })
+  const written: { path: string; text: string }[] = []
+  on("fs.write", (_$, e) => {
+    written.push(e)
+    return { value: undefined }
+  })
+  const submitted: string[] = []
+  on("prompt.submit", (_$, e) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
+  const launched: string[][] = []
+  on("process.run", (_$, e) => {
+    launched.push([...e.argv])
+    return e.argv[0] === "open" ? { deny: "open: command not found" } : { value: { exitCode: 0, stdout: "", stderr: "", isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+
+  const ran = await $.command.run({ command: "jsyk", args: "report", origin: { kind: "composer" }, presentation: { isFullscreen: false, columns: 120 } })
+
+  expect(written.map(file => file.path)).toEqual(["/Users/someone/.claude/just-so-you-know/report.html"])
+  expect(written[0]?.text).toContain(LINE)
+  expect(written[0]?.text).toContain("Another session's note.")
+  expect(ran.text).toContain("file:///Users/someone/.claude/just-so-you-know/report.html")
+  expect(launched).toEqual([
+    ["open", "/Users/someone/.claude/just-so-you-know/report.html"],
+    ["xdg-open", "/Users/someone/.claude/just-so-you-know/report.html"],
+  ])
+  expect(ran.text).toContain("Opened it in your browser")
+  expect(submitted).toEqual([])
+})
+
 for (const surface of ["terminal", "desktop"] as const)
   test(`the pane lists this session's notes and how they landed (${surface})`, async ($, on) => {
     world(on, {

@@ -12,7 +12,7 @@ A Claude Code mod modeled on the built-in **You should know** plugin. A side age
 ## Commands
 
 - `/jsyk` opens a live pane listing this session's notes and how each one landed.
-- `/jsyk report` writes a report of every note across sessions to `~/.claude/just-so-you-know/report.html` and asks Claude to publish it as a private artifact. Later reports update the same artifact link.
+- `/jsyk report` writes a page with every note across sessions to `~/.claude/just-so-you-know/report.html` opens it in your browser, and prints a `file://` link to it. Each run rebuilds the page from all sessions, so the one file is always the complete, current report.
 
 ## Install
 
