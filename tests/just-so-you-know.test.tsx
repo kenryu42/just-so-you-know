@@ -187,3 +187,25 @@ for (const surface of ["terminal", "desktop"] as const)
     expect(await ui.find({ type: "Text", text: "Another session's note." })).toBeUndefined()
     await ui.unmount()
   })
+
+for (const surface of ["terminal", "desktop"] as const)
+  test(`the pane's own Close button closes it (${surface})`, async ($, on) => {
+    world(on)
+    const closed: string[] = []
+    on("ui.close", (_$, e) => {
+      closed.push(e.id)
+      return { value: undefined }
+    })
+
+    const ui = await $.ui.mount({
+      plugin: "just-so-you-know",
+      surface,
+      component: "Pane",
+      requestId: "just-so-you-know",
+      props: { title: "Just So You Know", isFocused: false, bodyColumns: 80, placement: "dock", scroll: { offset: 0, bodyRows: 30 }, view: {} },
+    })
+    await ui.press({ key: "close" })
+
+    expect(closed).toEqual(["just-so-you-know"])
+    await ui.unmount()
+  })

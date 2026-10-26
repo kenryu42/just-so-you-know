@@ -268,16 +268,19 @@ export const register: Register = on => {
   })
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
     const sessionId = await $.session.id()
     const all = findingsOf(await $.store.get("findings"))
     const mine = all.filter(finding => finding.sessionId === sessionId).reverse()
     const helped = all.filter(finding => finding.verdict === "helped").length
     return (
       <Box flexDirection="column" gap={1}>
-        <Text dimColor>
-          This session: {mine.length} shared. All sessions: {all.length} shared, {helped} helped.
-        </Text>
+        <Box flexDirection="row" justifyContent="space-between" gap={2}>
+          <Text dimColor>
+            This session: {mine.length} shared. All sessions: {all.length} shared, {helped} helped.
+          </Text>
+          <Button key="close" label="Close" hotkey="x" onPress={() => $.ui.close({ id: PANE })} />
+        </Box>
         {mine.length === 0 && (
           <Text dimColor>No notes yet. The side agent checks about every {CHECK_EVERY} steps and shares only what clears a high bar.</Text>
         )}
