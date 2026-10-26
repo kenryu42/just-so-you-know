@@ -1,0 +1,9 @@
+{
+  "name": "just-so-you-know",
+  "version": "0.1.0",
+  "description": "A side agent watches longer tasks like the built-in You should know, but shares what it finds with the main agent automatically and reports how the main agent reacted.",
+  "author": {
+    "name": "kenryu42"
+  },
+  "license": "MIT"
+}
