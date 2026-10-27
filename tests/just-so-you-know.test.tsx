@@ -141,7 +141,7 @@ test("a check on the 6th step shares the note with the main agent without asking
   // A system row a plugin appends is an "info" notice, which the condensed view folds away mid-turn.
   expect(session.appended().filter(row => row.message.type === "system")).toEqual([])
   expect(logged).toEqual([`[Understanding Side Agent] ${LINE}`])
-  expect(toasts).toEqual([`Just So You Know told the main agent: ${LINE}`])
+  expect(toasts).toEqual([`Just So You Know: ${LINE}`])
 
   await step($, "t1", 12)
   await step($, "t2", 6)
@@ -246,7 +246,7 @@ test("each side agent in the folder checks too, and what they find reaches the m
   expect(note).toContain(`Heads up · ${LINE}`)
   expect(note).toContain(`Heads up · ${EVIDENCE_LINE}`)
   expect(logged).toEqual([`[Understanding Side Agent] ${LINE}`, `[Code Review Side Agent] ${EVIDENCE_LINE}`])
-  expect(toasts).toEqual(["Just So You Know told the main agent 2 notes. Run /jsyk to see them."])
+  expect(toasts).toEqual(["Just So You Know: 2 notes"])
 })
 
 test("a file named understanding.md replaces the built-in side agent", async ($, on) => {

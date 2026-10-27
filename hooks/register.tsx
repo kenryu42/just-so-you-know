@@ -243,8 +243,8 @@ async function check($: EngineInterface, sessionId: string, turnId: string, step
     delivered !== undefined
       ? `${TITLE} could not share ${shared.length === 1 ? "a note" : "its notes"}: ${delivered}`
       : shared.length === 1
-        ? `${TITLE} told the main agent: ${shared[0]!.line}`
-        : `${TITLE} told the main agent ${shared.length} notes. Run /jsyk to see them.`,
+        ? `${TITLE}: ${shared[0]!.line}`
+        : `${TITLE}: ${shared.length} notes`,
   )
 }
 
