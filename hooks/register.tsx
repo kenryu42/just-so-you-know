@@ -26,6 +26,13 @@ const stringsOf = (value: unknown) =>
 const countOf = (value: unknown) =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0
 
+const titleOf = (name: string) =>
+  name
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map(word => word[0]!.toUpperCase() + word.slice(1))
+    .join(" ")
+
 const quoted = (finding: Finding) =>
   [`${finding.tag} · ${finding.line}`, ...(finding.explanation ? ["", finding.explanation] : [])]
     .join("\n")
@@ -231,7 +238,7 @@ async function check($: EngineInterface, sessionId: string, turnId: string, step
   // Not a system row: the engine files a plugin's as an "info" notice, which the condensed view folds away mid-turn.
   if (delivered === undefined)
     for (const finding of shared)
-      $.ui.log(`${TITLE} told the main agent: ${finding.tag} · ${finding.line} (from ${finding.agent})`)
+      $.ui.log(`[${titleOf(finding.agent)} Side Agent] ${finding.line}`)
   $.ui.toast(
     delivered !== undefined
       ? `${TITLE} could not share ${shared.length === 1 ? "a note" : "its notes"}: ${delivered}`

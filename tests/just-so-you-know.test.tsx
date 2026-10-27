@@ -140,7 +140,7 @@ test("a check on the 6th step shares the note with the main agent without asking
   expect(rows.some(row => row.includes(`Heads up · ${LINE}`))).toBe(true)
   // A system row a plugin appends is an "info" notice, which the condensed view folds away mid-turn.
   expect(session.appended().filter(row => row.message.type === "system")).toEqual([])
-  expect(logged).toEqual([`Just So You Know told the main agent: Heads up · ${LINE} (from understanding)`])
+  expect(logged).toEqual([`[Understanding Side Agent] ${LINE}`])
   expect(toasts).toEqual([`Just So You Know told the main agent: ${LINE}`])
 
   await step($, "t1", 12)
@@ -226,8 +226,8 @@ test("a note the side agent already shared is not shared again", async ($, on) =
 })
 
 test("each side agent in the folder checks too, and what they find reaches the main agent in one message", async ($, on) => {
-  const { session, forks, toasts, findings } = world(on, {
-    files: { [`${AGENTS}/evidence.md`]: "## Your job\nEVIDENCE: find claims nothing in the session backs up." },
+  const { session, forks, toasts, logged, findings } = world(on, {
+    files: { [`${AGENTS}/code-review.md`]: "## Your job\nEVIDENCE: find claims nothing in the session backs up." },
     reply: prompt => (prompt.includes("EVIDENCE:") ? EVIDENCE_REPLY : SIDE_AGENT_REPLY),
   })
   await $.session.start({ cwd: "/work/shop", surface: "terminal", isInteractive: true })
@@ -238,13 +238,14 @@ test("each side agent in the folder checks too, and what they find reaches the m
   expect(forks.length).toBe(2)
   expect(findings()).toEqual([
     expect.objectContaining({ agent: "understanding", line: LINE }),
-    expect.objectContaining({ agent: "evidence", line: EVIDENCE_LINE }),
+    expect.objectContaining({ agent: "code-review", line: EVIDENCE_LINE }),
   ])
   const notes = session.appended().filter(row => row.message.type === "user")
   expect(notes.length).toBe(1)
   const note = JSON.stringify(notes[0]?.message.content)
   expect(note).toContain(`Heads up · ${LINE}`)
   expect(note).toContain(`Heads up · ${EVIDENCE_LINE}`)
+  expect(logged).toEqual([`[Understanding Side Agent] ${LINE}`, `[Code Review Side Agent] ${EVIDENCE_LINE}`])
   expect(toasts).toEqual(["Just So You Know told the main agent 2 notes. Run /jsyk to see them."])
 })
 

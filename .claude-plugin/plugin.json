@@ -1,6 +1,6 @@
 {
   "name": "just-so-you-know",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Side agents watch longer tasks like the built-in You should know, but share what they find with the main agent automatically, take custom prompts, and report how the main agent reacted.",
   "author": {
     "name": "kenryu42"
