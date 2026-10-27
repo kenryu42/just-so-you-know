@@ -200,6 +200,36 @@ test("the reaction is judged even when the session's messages leave out the hidd
   expect(findings()).toEqual([expect.objectContaining({ verdict: "helped", evidence: "It kept the listing off main." })])
 })
 
+test("the judge reads a reply that comes after a long notification and many tool calls, and the note's explanation", async ($, on) => {
+  const { findings } = world(on)
+  const conversation: SessionMessage[] = [{ role: "user", text: "Fix the page cache for the shop.", toolUses: [] }]
+  const judged: string[] = []
+  on("session.messages", () => ({ value: [...conversation] }))
+  on("model.complete", (_$, e) => {
+    judged.push(e.prompt)
+    return { value: { isAnswered: true, text: "verdict: helped\nevidence: It put the locale in the cache key.", usage: USAGE } }
+  })
+  await $.session.start({ cwd: "/work/shop", surface: "terminal", isInteractive: true })
+
+  await step($, "t1", 6)
+  await eventually($, () => findings().length === 1)
+  const reply = "Update: cached pages are now keyed by URL and locale, so French visitors get French pages."
+  conversation.push({ role: "user", text: `<task-notification>${"build log ".repeat(1000)}</task-notification>`, toolUses: [] })
+  for (let at = 0; at < 20; at++)
+    conversation.push(
+      { role: "assistant", text: "", toolUses: [{ tool_use_id: `u${at}`, tool: "Bash", input: { command: `okc check run_${at}.py` } }] },
+      { role: "user", text: "", toolUses: [], toolResults: [{ tool_use_id: `u${at}`, text: "queued", isError: false }] },
+    )
+  conversation.push({ role: "assistant", text: reply, toolUses: [] })
+  await $.turn.complete({ answer: "done", durationMs: 1, isAborted: false, turnId: "t2", reason: "answer" })
+  await eventually($, () => findings()[0]?.verdict !== undefined)
+
+  expect(judged.length).toBe(1)
+  expect(judged[0]).toContain(reply)
+  expect(judged[0]).toContain("The cache key is built from the URL alone.")
+  expect(findings()).toEqual([expect.objectContaining({ verdict: "helped" })])
+})
+
 test("a note still waiting after two of the person's prompts counts as no reaction", async ($, on) => {
   const { findings } = world(on)
   await $.session.start({ cwd: "/work/shop", surface: "terminal", isInteractive: true })

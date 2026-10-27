@@ -14,6 +14,9 @@ const LOOKS_TO_SKIP_MAX = 16
 const PASSED_OVER_FREE = 2
 const TITLE = "Just So You Know"
 const JUDGE_MODEL = "haiku"
+const JUDGE_CHARS_MAX = 16000
+const AGENT_TEXT_MAX = 4000
+const OTHER_LINE_MAX = 200
 const DATA_DIR = ".claude/just-so-you-know"
 const BUILT_IN = "understanding"
 const PANE = "just-so-you-know"
@@ -45,34 +48,39 @@ const noteFor = (findings: readonly Finding[]) =>
     ? `Here is a note offered by a side agent (Just So You Know). It was shared with you automatically; the user has not reviewed it:\n\n${quoted(findings[0]!)}`
     : `Here are ${findings.length} notes offered by side agents (Just So You Know). They were shared with you automatically; the user has not reviewed them:\n\n${findings.map(quoted).join("\n\n")}`
 
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text)
+
+// The agent's own words are what show a reaction, so they are kept whole; the rest is shortened and dropped first.
 const judgePrompt = (finding: Finding, after: readonly SessionMessage[]) => {
-  const transcript = after
-    .slice(0, 16)
-    .flatMap(message =>
-      message.role === "assistant"
-        ? [
-            ...(message.text ? [`Agent: ${message.text}`] : []),
-            ...message.toolUses.map(use => `Agent ran ${use.tool}: ${JSON.stringify(use.input).slice(0, 240)}`),
-          ]
-        : message.text && !message.toolResults?.length
-          ? [`User: ${message.text}`]
-          : [],
-    )
+  const lines = after.flatMap(message =>
+    message.role === "assistant"
+      ? [
+          ...(message.text ? [{ isAgentText: true, text: `Agent: ${clip(message.text, AGENT_TEXT_MAX)}` }] : []),
+          ...message.toolUses.map(use => ({ isAgentText: false, text: `Agent ran ${use.tool}: ${clip(JSON.stringify(use.input), OTHER_LINE_MAX)}` })),
+        ]
+      : message.text && !message.toolResults?.length
+        ? [{ isAgentText: false, text: `Message to the agent: ${clip(message.text, OTHER_LINE_MAX)}` }]
+        : [],
+  )
+  let room = lines.reduce((left, line) => (line.isAgentText ? left - line.text.length : left), JUDGE_CHARS_MAX)
+  const transcript = lines
+    .filter(line => line.isAgentText || (room -= line.text.length) >= 0)
+    .map(line => line.text)
     .join("\n")
-    .slice(0, 8000)
+    .slice(0, JUDGE_CHARS_MAX)
   return `A side agent passed this note to a coding agent while it worked:
 
-${finding.tag} · ${finding.line}
+${finding.tag} · ${finding.line}${finding.explanation ? `\n\n${finding.explanation}` : ""}
 
-Here is what the coding agent said and did right after reading it:
+Here is what came after the note: what the coding agent said, the tools it ran, and messages it received (from the user or the system), shortened:
 
 ${transcript}
 
-How did the coding agent take the note? Pick exactly one:
-- helped: it changed what it did or planned because of the note
-- acknowledged: it took the note in but changed nothing, and had not already handled it
-- already_aware: it says or shows it had already known or handled this
-- ignored: nothing shows it read the note
+How did the coding agent take the note? It may act on a note without mentioning it, so compare what it said and did with the note's point. Pick exactly one:
+- helped: what it did, said or planned changed in line with the note's point, whether or not it mentions the note
+- acknowledged: it took the note's point in but changed nothing, and had not already handled it
+- already_aware: it says or shows it had already known or handled this before the note
+- ignored: nothing it said or did after the note reflects the note's point
 
 Answer in exactly two lines:
 verdict: <helped|acknowledged|already_aware|ignored>
