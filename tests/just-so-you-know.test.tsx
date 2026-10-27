@@ -387,7 +387,7 @@ test("creating a side agent from the panel hands the job to the main agent with 
   await ui.unmount()
 })
 
-test("the panel's report button writes one page with every session's notes and opens it", async ($, on) => {
+test("the panel's report button writes a page with this session's notes alone and opens it", async ($, on) => {
   const { disk, toasts } = world(on, {
     entries: {
       findings: [
@@ -408,8 +408,9 @@ test("the panel's report button writes one page with every session's notes and o
   const path = "/Users/someone/.claude/just-so-you-know/report.html"
   const page = disk.get(path) ?? ""
   expect(page).toContain(LINE)
-  expect(page).toContain("Another session's note.")
-  expect(page).toMatch(/<span class="agent">evidence<\/span>/)
+  expect(page).toMatch(/<span class="agent">understanding<\/span>/)
+  expect(page).not.toContain("Another session's note.")
+  expect(page).not.toMatch(/<span class="agent">evidence<\/span>/)
   expect(launched).toEqual([["open", path], ["xdg-open", path]])
   expect(toasts).toEqual([`Opened the report: file://${path}`])
   await ui.unmount()

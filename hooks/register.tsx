@@ -382,7 +382,8 @@ export const register: Register = on => {
     }
     const openReport = async () => {
       const path = `${dir}/report.html`
-      await $.fs.write(path, reportHtml(findings, Date.now()))
+      const sessionId = await $.session.id()
+      await $.fs.write(path, reportHtml(findings.filter(finding => finding.sessionId === sessionId), Date.now()))
       const isOpened = await openInBrowser($, path)
       $.ui.toast(isOpened ? `Opened the report: file://${path}` : `Wrote the report: file://${path}`)
     }

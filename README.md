@@ -83,7 +83,7 @@ The report names the side agent behind each note and counts each one's verdicts,
 - **Side agents:** each one with whether it is on, where it comes from, and how many of its notes helped. Press one to turn it on or off.
 - **Check every (steps):** how often the side agents check, 6 by default, from 1 to 100.
 - **New side agent:** type what it should watch for and press Enter. The panel closes and the main agent sets the side agent up with you.
-- **Open report** (`r`): writes a page with every note across sessions to `~/.claude/just-so-you-know/report.html` and opens it in your browser. Each time, the page is rebuilt from all sessions.
+- **Open report** (`r`): writes a page with this session's notes to `~/.claude/just-so-you-know/report.html` and opens it in your browser. Each time, the page is rebuilt for the session you open it from.
 - **Copy agents folder path** (`c`): to open the side agents' files in your own editor.
 
 The panel saves its settings to `~/.claude/just-so-you-know/config.json`. Both the settings and the agents folder are read at every check, so changes count from the next check on. The phone app draws no text fields yet, so there the panel only lists and toggles side agents.
