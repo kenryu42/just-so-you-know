@@ -228,11 +228,10 @@ async function check($: EngineInterface, sessionId: string, turnId: string, step
     ...findings,
     ...shared.map(finding => ({ ...finding, messageCount, deliveryError: delivered })),
   ])
+  // Not a system row: the engine files a plugin's as an "info" notice, which the condensed view folds away mid-turn.
   if (delivered === undefined)
     for (const finding of shared)
-      await $.session
-        .append({ message: { type: "system", content: [{ type: "text", text: `${TITLE} told the main agent: ${finding.tag} · ${finding.line} (from ${finding.agent})` }] } })
-        .catch(() => undefined)
+      $.ui.log(`${TITLE} told the main agent: ${finding.tag} · ${finding.line} (from ${finding.agent})`)
   $.ui.toast(
     delivered !== undefined
       ? `${TITLE} could not share ${shared.length === 1 ? "a note" : "its notes"}: ${delivered}`

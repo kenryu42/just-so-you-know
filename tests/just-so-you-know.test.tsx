@@ -45,12 +45,17 @@ function world(on: On, { entries = {}, files = {}, reply = () => SIDE_AGENT_REPL
   const session = mock.session(on)
   const forks: string[] = []
   const toasts: string[] = []
+  const logged: string[] = []
   on("session.start", (_$, e) => ({ cwd: e.cwd }))
   on("session.id", () => ({ value: "s1" }))
   on("session.surfaces", () => ({ value: ["terminal"] }))
   on("command.register", () => ({ value: { command: "jsyk" } }))
   on("ui.toast", (_$, e) => {
     toasts.push(e.text)
+    return { value: undefined }
+  })
+  on("ui.log", (_$, e) => {
+    if (e.to === "transcript") logged.push(e.text)
     return { value: undefined }
   })
   const opened: string[] = []
@@ -88,7 +93,7 @@ function world(on: On, { entries = {}, files = {}, reply = () => SIDE_AGENT_REPL
     const stored = store.get("findings")
     return Array.isArray(stored) ? (stored as { line: string; agent?: string; verdict?: string; evidence?: string }[]) : []
   }
-  return { session, forks, toasts, findings, disk, opened, closed, submitted, copied }
+  return { session, forks, toasts, logged, findings, disk, opened, closed, submitted, copied }
 }
 
 const PANE = {
@@ -118,7 +123,7 @@ async function eventually($: Engine, isDone: () => boolean) {
 }
 
 test("a check on the 6th step shares the note with the main agent without asking", async ($, on) => {
-  const { session, forks, toasts, findings } = world(on)
+  const { session, forks, toasts, logged, findings } = world(on)
   await $.session.start({ cwd: "/work/shop", surface: "terminal", isInteractive: true })
 
   await step($, "t1", 5)
@@ -133,10 +138,9 @@ test("a check on the 6th step shares the note with the main agent without asking
   const rows = session.appended().map(row => JSON.stringify(row.message.content))
   expect(rows.some(row => row.includes("Here is a note offered by a side agent (Just So You Know)"))).toBe(true)
   expect(rows.some(row => row.includes(`Heads up · ${LINE}`))).toBe(true)
-  const notices = session.appended().filter(row => row.message.type === "system")
-  expect(notices.map(row => JSON.stringify(row.message.content))).toEqual([
-    expect.stringContaining(`Just So You Know told the main agent: Heads up · ${LINE}`),
-  ])
+  // A system row a plugin appends is an "info" notice, which the condensed view folds away mid-turn.
+  expect(session.appended().filter(row => row.message.type === "system")).toEqual([])
+  expect(logged).toEqual([`Just So You Know told the main agent: Heads up · ${LINE} (from understanding)`])
   expect(toasts).toEqual([`Just So You Know told the main agent: ${LINE}`])
 
   await step($, "t1", 12)
