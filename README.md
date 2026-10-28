@@ -50,17 +50,18 @@ explain:
 learn: none
 ```
 
+- **One repo only:** put the file in `~/.claude/just-so-you-know/projects/<repo>/agents/`, where `<repo>` is the repo's path with every non-alphanumeric character turned into `-` (`/Users/me/shop` becomes `-Users-me-shop`). It also checks the repo's worktrees and subfolders, and replaces an every-repo side agent with the same name there. `/jsyk` copies this path with `p`.
 - Changes count from the next check. `understanding.md` replaces the built-in.
 - Each side agent is one more request per check, so each adds cost (mostly prompt-cache reads).
-- Only this folder in your home directory is read, so a repository can't add side agents.
+- Only these folders in your home directory are read, so a repository can't add side agents.
 
 ## `/jsyk`
 
-- **Side agents:** on/off, where each comes from, and how many of its notes helped.
+- **Side agents:** listed under **User** (built-in and `agents/`, every repo) and **Project** (this repo's folder), with how many of each one's notes helped. Turning a User side agent off turns it off everywhere; a Project one, only in this repo.
 - **Check every (steps):** 1–100, default 6.
 - **New side agent:** describe what to watch for, and Claude sets it up with you.
 - **Open report** (`r`): this session's notes and verdicts per side agent, in your browser.
-- **Copy agents folder path** (`c`).
+- **Copy agents folder path** (`c`) and **Copy this repo's folder path** (`p`).
 
 Settings are saved in `~/.claude/just-so-you-know/config.json`. In the phone app the panel can only turn side agents on and off.
 

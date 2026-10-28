@@ -18,6 +18,7 @@ const JUDGE_CHARS_MAX = 16000
 const AGENT_TEXT_MAX = 4000
 const OTHER_LINE_MAX = 200
 const DATA_DIR = ".claude/just-so-you-know"
+const REPOS_DIR = "projects"
 const BUILT_IN = "understanding"
 const PANE = "just-so-you-know"
 const AGENTS_POLL_MS = 2000
@@ -120,8 +121,9 @@ async function updateFindings($: EngineInterface, change: (findings: Finding[]) 
   await $.store.set("findings", change(findingsOf(await $.store.get("findings"))).slice(-FINDINGS_MAX))
 }
 
-type SideAgent = { name: string; job: string; isBuiltIn: boolean }
-type Config = { checkEvery: number; disabled: string[] }
+// A user side agent runs in every repo, a project one in one repo; its on/off has the same reach.
+type SideAgent = { name: string; job: string; scope: "user" | "project"; isBuiltIn: boolean }
+type Config = { checkEvery: number; disabled: string[]; disabledIn: Record<string, string[]> }
 
 const dataDir = async ($: EngineInterface) => {
   const home = await $.env.get("HOME")
@@ -131,7 +133,7 @@ const dataDir = async ($: EngineInterface) => {
 async function readConfig($: EngineInterface): Promise<Config> {
   const dir = await dataDir($)
   const raw = dir ? await $.fs.read(`${dir}/config.json`).catch(() => "") : ""
-  let parsed: { checkEvery?: unknown; disabled?: unknown } = {}
+  let parsed: { checkEvery?: unknown; disabled?: unknown; disabledIn?: unknown } = {}
   try {
     const value: unknown = raw ? JSON.parse(raw) : {}
     if (typeof value === "object" && value !== null) parsed = value
@@ -140,8 +142,18 @@ async function readConfig($: EngineInterface): Promise<Config> {
   return {
     checkEvery: Number.isSafeInteger(every) && (every as number) >= 1 && (every as number) <= CHECK_EVERY_MAX ? (every as number) : CHECK_EVERY,
     disabled: stringsOf(parsed.disabled),
+    disabledIn:
+      typeof parsed.disabledIn === "object" && parsed.disabledIn !== null
+        ? Object.fromEntries(Object.entries(parsed.disabledIn).map(([repo, names]) => [repo, stringsOf(names)]))
+        : {},
   }
 }
+
+const isOff = (config: Config, repo: string, agent: SideAgent) =>
+  (agent.scope === "user" ? config.disabled : (config.disabledIn[repo] ?? [])).includes(agent.name)
+
+const flipped = (names: readonly string[], name: string) =>
+  names.includes(name) ? names.filter(one => one !== name) : [...names, name]
 
 async function writeConfig($: EngineInterface, change: (config: Config) => Config) {
   const dir = await dataDir($)
@@ -149,23 +161,48 @@ async function writeConfig($: EngineInterface, change: (config: Config) => Confi
   await $.fs.write(`${dir}/config.json`, `${JSON.stringify(change(await readConfig($)), null, 2)}\n`)
 }
 
-// The built-in agent lives here, not in the folder, so changes to it reach everyone; a file of the same name replaces it.
+const repoRoots = new Map<string, Promise<string>>()
+
+// Keyed by the repo, not the folder: every worktree and subfolder of a repo shares its git common dir.
+const repoRoot = async ($: EngineInterface) => {
+  const root = await $.session.root()
+  const known = repoRoots.get(root)
+  if (known) return known
+  const found = $.process
+    .run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root, timeoutMs: 10000 })
+    .then(ran => {
+      const common = ran.exitCode === 0 ? ran.stdout.trim() : ""
+      return /[\\/]\.git$/.test(common) ? common.slice(0, -5) : root
+    })
+    .catch(() => root)
+  repoRoots.set(root, found)
+  return found
+}
+
+const repoKey = async ($: EngineInterface) => (await repoRoot($)).replace(/[^a-zA-Z0-9]/g, "-")
+
+// Kept in the home folder like the rest, so a repository can't add side agents of its own.
+const repoAgentsDir = async ($: EngineInterface, dir: string) => `${dir}/${REPOS_DIR}/${await repoKey($)}/agents`
+
+async function agentsIn($: EngineInterface, folder: string, scope: SideAgent["scope"]): Promise<SideAgent[]> {
+  const entries = await $.fs.list(folder).catch(() => [])
+  const files = entries.filter(entry => entry.name.endsWith(".md") && (entry.kind === "file" || entry.isLink)).map(entry => entry.name)
+  const read = await Promise.all(
+    files.map(async file => ({ name: file.slice(0, -3), job: (await $.fs.read(`${folder}/${file}`).catch(() => "")).trim(), scope, isBuiltIn: false })),
+  )
+  return read.filter(agent => agent.job !== "")
+}
+
+// The built-in agent lives here, not in a folder, so changes to it reach everyone; a file of the same name replaces it,
+// and one in the repo's folder replaces the agents folder's.
 async function allAgents($: EngineInterface): Promise<SideAgent[]> {
   const dir = await dataDir($)
-  const entries = dir ? await $.fs.list(`${dir}/agents`).catch(() => []) : []
-  const files = entries
-    .filter(entry => entry.name.endsWith(".md") && (entry.kind === "file" || entry.isLink))
-    .map(entry => entry.name)
-    .sort()
-  const read = await Promise.all(
-    files.map(async file => ({
-      name: file.slice(0, -3),
-      job: (await $.fs.read(`${dir}/agents/${file}`).catch(() => "")).trim(),
-      isBuiltIn: false,
-    })),
-  )
-  const own = read.filter(agent => agent.job !== "")
-  return own.some(agent => agent.name === BUILT_IN) ? own : [{ name: BUILT_IN, job: UNDERSTANDING, isBuiltIn: true }, ...own]
+  const [everywhere, repo] = dir
+    ? await Promise.all([agentsIn($, `${dir}/agents`, "user"), agentsIn($, await repoAgentsDir($, dir), "project")])
+    : [[], []]
+  const byName = new Map([...everywhere, ...repo].map(agent => [agent.name, agent]))
+  const own = [...byName.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  return byName.has(BUILT_IN) ? own : [{ name: BUILT_IN, job: UNDERSTANDING, scope: "user", isBuiltIn: true }, ...own]
 }
 
 const backoffKey = (key: string, agent: string) => `${key}:${agent}`
@@ -190,10 +227,11 @@ async function check($: EngineInterface, sessionId: string, turnId: string, step
   const open = findingsOf(await $.store.get("findings")).filter(
     finding => finding.sessionId === sessionId && isOpen(finding),
   )
-  const { disabled } = await readConfig($)
+  const config = await readConfig($)
+  const repo = await repoKey($)
   const ready: SideAgent[] = []
   for (const agent of await allAgents($)) {
-    if (disabled.includes(agent.name)) continue
+    if (isOff(config, repo, agent)) continue
     if (sharedTurns.get(`${sessionId}:${agent.name}`) === turnId) continue
     if (open.some(finding => finding.agent === agent.name)) continue
     const looksToSkip = Math.min(LOOKS_TO_SKIP_MAX, countOf(await $.store.get(backoffKey("looksToSkip", agent.name))))
@@ -347,6 +385,9 @@ export const register: Register = on => {
     // The mobile app draws no fields yet.
     const Input = e.surface !== "mobile" && "Input" in elements ? elements.Input : undefined
     const dir = (await dataDir($)) ?? `~/${DATA_DIR}`
+    const repo = await repoKey($)
+    const repoName = (await repoRoot($)).split(/[\\/]/).filter(Boolean).at(-1) ?? "this repo"
+    const repoDir = await repoAgentsDir($, dir)
     const config = await readConfig($)
     const agents = await allAgents($)
     const findings = findingsOf(await $.store.get("findings"))
@@ -364,11 +405,13 @@ export const register: Register = on => {
       panelError = error instanceof Error ? error.message : String(error)
       redraw()
     }
-    const toggle = (name: string) =>
-      writeConfig($, current => ({
-        ...current,
-        disabled: current.disabled.includes(name) ? current.disabled.filter(one => one !== name) : [...current.disabled, name],
-      }))
+    const toggle = (agent: SideAgent) =>
+      writeConfig($, current => {
+        if (agent.scope === "user") return { ...current, disabled: flipped(current.disabled, agent.name) }
+        const { [repo]: here = [], ...others } = current.disabledIn
+        const next = flipped(here, agent.name)
+        return { ...current, disabledIn: next.length === 0 ? others : { ...others, [repo]: next } }
+      })
         .then(() => {
           panelError = undefined
           redraw()
@@ -392,7 +435,7 @@ export const register: Register = on => {
       if (what === "") return
       await $.ui.close({ id: PANE })
       await $.prompt.submit({
-        text: `Create a ${TITLE} side agent that watches for: ${what}\n\nUse the just-so-you-know:create-side-agent skill.`,
+        text: `Create a ${TITLE} side agent that watches for: ${what}\n\nUse the just-so-you-know:create-side-agent skill. Side agents for every repo go in ${dir}/agents, and ones for this repo only in ${repoDir}.`,
       })
     }
     const openReport = async () => {
@@ -408,22 +451,32 @@ export const register: Register = on => {
           <Text bold>Side agents</Text>
           <Button key="close" label="Close" hotkey="x" plain onPress={() => $.ui.close({ id: PANE })} />
         </Box>
-        <Box flexDirection="column">
-          {agents.map(agent => {
-            const own = findings.filter(finding => finding.agent === agent.name)
-            const helped = own.filter(finding => finding.verdict === "helped").length
-            const isOn = !config.disabled.includes(agent.name)
-            return (
-              <Button key={`agent:${agent.name}`} plain onPress={() => toggle(agent.name)}>
-                {isOn ? "● on " : "○ off"} {agent.name}{" "}
-                <Text dimColor>
-                  {agent.isBuiltIn ? "built-in" : "agents folder"} · {own.length} {own.length === 1 ? "note" : "notes"} · {helped} helped
-                </Text>
-              </Button>
-            )
-          })}
-          <Text dimColor>Press a side agent to turn it on or off.</Text>
-        </Box>
+        {(["user", "project"] as const).map(scope => {
+          const listed = agents.filter(agent => agent.scope === scope)
+          return (
+            <Box key={`scope:${scope}`} flexDirection="column">
+              <Text>
+                <Text bold>{scope === "user" ? "User" : "Project"}</Text>{" "}
+                <Text dimColor>{scope === "user" ? "every repo" : repoName}</Text>
+              </Text>
+              {listed.map(agent => {
+                const own = findings.filter(finding => finding.agent === agent.name)
+                const helped = own.filter(finding => finding.verdict === "helped").length
+                return (
+                  <Button key={`agent:${agent.name}`} plain onPress={() => toggle(agent)}>
+                    {isOff(config, repo, agent) ? "○ off" : "● on "} {agent.name}{" "}
+                    <Text dimColor>
+                      {agent.isBuiltIn ? "built-in · " : ""}
+                      {own.length} {own.length === 1 ? "note" : "notes"} · {helped} helped
+                    </Text>
+                  </Button>
+                )
+              })}
+              {listed.length === 0 && <Text dimColor>No side agents for this repo yet. Press p to copy its folder path.</Text>}
+            </Box>
+          )
+        })}
+        <Text dimColor>Press a side agent to turn it on or off: a user one in every repo, a project one in this repo.</Text>
         {Input ? (
           <Box flexDirection="column" gap={1}>
             <Input key="every" label="Check every (steps)" value={String(config.checkEvery)} submitLabel="save" onSubmit={setEvery} />
@@ -439,6 +492,7 @@ export const register: Register = on => {
         <Box flexDirection="row" gap={2}>
           <Button key="report" label="Open report" hotkey="r" plain onPress={() => openReport().catch(failed)} />
           <Button key="copy" label="Copy agents folder path" hotkey="c" plain onPress={press => $.ui.copy({ text: `${dir}/agents`, surface: press.surface }).then(() => $.ui.toast(`Copied ${dir}/agents`)).catch(failed)} />
+          <Button key="copy-repo" label="Copy this repo's folder path" hotkey="p" plain onPress={press => $.ui.copy({ text: repoDir, surface: press.surface }).then(() => $.ui.toast(`Copied ${repoDir}`)).catch(failed)} />
         </Box>
       </Box>
     )

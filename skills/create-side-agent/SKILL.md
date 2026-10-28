@@ -1,11 +1,11 @@
 ---
 name: create-side-agent
-description: Create a Just So You Know side agent, a Markdown file in ~/.claude/just-so-you-know/agents/ that watches sessions for one kind of problem and passes notes to the main agent. Use when the user asks for a new side agent, a new focus for Just So You Know, or when the /jsyk panel hands over a "Create a Just So You Know side agent" request.
+description: Create a Just So You Know side agent, a Markdown file in ~/.claude/just-so-you-know/agents/ (every repo) or ~/.claude/just-so-you-know/projects/<repo>/agents/ (one repo only) that watches sessions for one kind of problem and passes notes to the main agent. Use when the user asks for a new side agent, a new focus for Just So You Know, or when the /jsyk panel hands over a "Create a Just So You Know side agent" request.
 ---
 
 # Create a side agent
 
-A side agent is one Markdown file in `~/.claude/just-so-you-know/agents/`. About every few steps of a longer task, the plugin asks it one question over the session transcript. It has no tools and answers once: `learn: none` almost always, or a single note that goes straight to the main agent.
+A side agent is one Markdown file. In `~/.claude/just-so-you-know/agents/` it checks sessions in every repo. In `~/.claude/just-so-you-know/projects/<repo key>/agents/` it checks only sessions in that repo, including its worktrees and subfolders, and replaces an every-repo side agent of the same name there. About every few steps of a longer task, the plugin asks it one question over the session transcript. It has no tools and answers once: `learn: none` almost always, or a single note that goes straight to the main agent.
 
 The file holds only the side agent's **job**: what to look for, the bar, and examples. The plugin wraps it in the fixed parts, so the file must not repeat them:
 
@@ -20,12 +20,17 @@ The file holds only the side agent's **job**: what to look for, the bar, and exa
    - What should it catch? Get one or two concrete cases from their own work.
    - What looks similar but is not worth raising? This sets the bar.
    - What should it be called? Suggest a short kebab-case name (`evidence`, `api-breaks`), which becomes the file name.
+   - Every repo, or this repo only? Suggest this repo when the job names this repo's code, tools or conventions.
    If the request is already specific, propose answers and let the user confirm instead of asking.
-2. **Check the name.** List `~/.claude/just-so-you-know/agents/`. If the name is taken, say so and ask before replacing it. `understanding.md` replaces the built-in side agent, so use that name only when the user means to.
-3. **Write the file** at `~/.claude/just-so-you-know/agents/<name>.md` in the shape below.
-4. **Show the user the file** and tell them:
+2. **Find the folder.** For every repo it is `~/.claude/just-so-you-know/agents/`. For this repo only, use the folder the request names if it names one. Otherwise work it out:
+   - Run `git rev-parse --path-format=absolute --git-common-dir` in the project. If it prints a path ending in `/.git`, the repo is that path without `/.git`. If not (not a git repo), the repo is the project folder.
+   - The key is that path with every character that is not a letter or digit replaced by `-`: `/Users/me/work/shop` becomes `-Users-me-work-shop`.
+   - The folder is `~/.claude/just-so-you-know/projects/<key>/agents/`.
+3. **Check the name.** List the folder. If the name is taken, say so and ask before replacing it. `understanding.md` replaces the built-in side agent, so use that name only when the user means to.
+4. **Write the file** at `<folder>/<name>.md` in the shape below.
+5. **Show the user the file** and tell them:
    - it checks from the next check on, about every 6 steps by default,
-   - `/jsyk` turns it on or off and shows how its notes landed,
+   - `/jsyk` lists it under User (every repo) or Project (this repo), turns it on or off there, and shows how its notes landed,
    - each side agent adds a request over the session at every check, so more side agents cost more.
 
 ## The file

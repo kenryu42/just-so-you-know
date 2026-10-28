@@ -18,9 +18,20 @@ const EVIDENCE_LINE = "The commit says the tests pass, but the session never ran
 const EVIDENCE_REPLY = `learn: ${EVIDENCE_LINE}\ntag: Heads up`
 const NONE = "learn: none"
 
-type World = { entries?: Record<string, unknown>; files?: Record<string, string>; reply?: (prompt: string) => string }
+const SHOP_AGENTS = "/Users/someone/.claude/just-so-you-know/projects/-work-shop/agents"
 
-function world(on: On, { entries = {}, files = {}, reply = () => SIDE_AGENT_REPLY }: World = {}) {
+type World = {
+  entries?: Record<string, unknown>
+  files?: Record<string, string>
+  reply?: (prompt: string) => string
+  root?: string
+  // What `git rev-parse --git-common-dir` prints in each folder; a folder left out is not in a repo.
+  gitDirs?: Record<string, string>
+  // Answers every other command the plugin runs.
+  run?: (argv: readonly string[]) => { exitCode: number } | { deny: string }
+}
+
+function world(on: On, { entries = {}, files = {}, reply = () => SIDE_AGENT_REPLY, root = "/work/shop", gitDirs = { "/work/shop": "/work/shop/.git" }, run }: World = {}) {
   const store = new Map(Object.entries(entries))
   const disk = new Map(Object.entries(files))
   mock.env(on, { HOME: "/Users/someone" })
@@ -48,6 +59,12 @@ function world(on: On, { entries = {}, files = {}, reply = () => SIDE_AGENT_REPL
   const logged: string[] = []
   on("session.start", (_$, e) => ({ cwd: e.cwd }))
   on("session.id", () => ({ value: "s1" }))
+  on("session.root", () => ({ value: root }))
+  on("process.run", (_$, e) => {
+    const gitDir = gitDirs[e.init?.cwd ?? ""]
+    const ran = e.argv[0] === "git" ? { exitCode: gitDir ? 0 : 128 } : run ? run(e.argv) : { deny: `${e.argv[0]}: command not found` }
+    return "deny" in ran ? ran : { value: { ...ran, stdout: gitDir ? `${gitDir}\n` : "", stderr: "", isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on("session.surfaces", () => ({ value: ["terminal"] }))
   on("command.register", () => ({ value: { command: "jsyk" } }))
   on("ui.toast", (_$, e) => {
@@ -419,18 +436,18 @@ test("creating a side agent from the panel hands the job to the main agent with 
 })
 
 test("the panel's report button writes a page with this session's notes alone and opens it", async ($, on) => {
+  const launched: string[][] = []
   const { disk, toasts } = world(on, {
+    run: argv => {
+      launched.push([...argv])
+      return argv[0] === "open" ? { deny: "open: command not found" } : { exitCode: 0 }
+    },
     entries: {
       findings: [
         { id: "a", sessionId: "s1", project: "shop", turnId: "t1", step: 6, sharedAt: 1, agent: "understanding", tag: "Heads up", line: LINE, promptsSurvived: 0, verdict: "helped", evidence: "It added the locale." },
         { id: "b", sessionId: "s2", project: "blog", turnId: "t9", step: 6, sharedAt: 2, agent: "evidence", tag: "You should know", line: "Another session's note.", promptsSurvived: 0 },
       ],
     },
-  })
-  const launched: string[][] = []
-  on("process.run", (_$, e) => {
-    launched.push([...e.argv])
-    return e.argv[0] === "open" ? { deny: "open: command not found" } : { value: { exitCode: 0, stdout: "", stderr: "", isStdoutTruncated: false, isStderrTruncated: false } }
   })
   const ui = await $.ui.mount(PANE)
 
@@ -477,5 +494,111 @@ test("a side agent file added while the panel is open shows up without reopening
   await clock.advance(3000)
 
   expect((await ui.find({ type: "Button", key: "agent:evidence" }))?.text).toMatch(/on/)
+  await ui.unmount()
+})
+
+const REPO_FILE = { [`${SHOP_AGENTS}/api-breaks.md`]: "## Your job\nAPI BREAKS: find changes that break the shop's public API." }
+
+const REPO_SESSIONS = [
+  { where: "the repo", root: "/work/shop", gitDir: "/work/shop/.git", isChecked: true },
+  { where: "a worktree of the repo", root: "/work/shop-wt", gitDir: "/work/shop/.git", isChecked: true },
+  { where: "a subfolder of the repo", root: "/work/shop/hooks", gitDir: "/work/shop/.git", isChecked: true },
+  { where: "another repo", root: "/work/blog", gitDir: "/work/blog/.git", isChecked: false },
+]
+for (const { where, root, gitDir, isChecked } of REPO_SESSIONS)
+  test(`a side agent for one repo ${isChecked ? "checks" : "does not check"} a session in ${where}`, async ($, on) => {
+    const { forks } = world(on, { files: REPO_FILE, reply: () => NONE, root, gitDirs: { [root]: gitDir } })
+    await $.session.start({ cwd: root, surface: "terminal", isInteractive: true })
+
+    await step($, "t1", 6)
+    await eventually($, () => forks.length >= 1)
+    await settle()
+
+    expect(forks.some(prompt => prompt.includes("API BREAKS:"))).toBe(isChecked)
+    expect(forks.some(prompt => prompt.includes(BUILT_IN))).toBe(true)
+  })
+
+test("a side agent for a folder that is not a repo checks sessions in that folder", async ($, on) => {
+  const { forks } = world(on, {
+    files: { "/Users/someone/.claude/just-so-you-know/projects/-work-notes/agents/api-breaks.md": REPO_FILE[`${SHOP_AGENTS}/api-breaks.md`] },
+    reply: () => NONE,
+    root: "/work/notes",
+    gitDirs: {},
+  })
+  await $.session.start({ cwd: "/work/notes", surface: "terminal", isInteractive: true })
+
+  await step($, "t1", 6)
+  await eventually($, () => forks.length === 2)
+  expect(forks.some(prompt => prompt.includes("API BREAKS:"))).toBe(true)
+})
+
+test("a repo's side agent replaces the agents folder's one of the same name, and its switch is the repo's", async ($, on) => {
+  const { forks, disk } = world(on, {
+    files: { ...EVIDENCE_FILE, [`${SHOP_AGENTS}/evidence.md`]: "## Your job\nSHOP EVIDENCE: find claims about the shop nothing backs up." },
+    reply: () => NONE,
+  })
+  await $.session.start({ cwd: "/work/shop", surface: "terminal", isInteractive: true })
+
+  await step($, "t1", 6)
+  await eventually($, () => forks.length === 2)
+  await settle()
+  expect(forks.length).toBe(2)
+  expect(forks.some(prompt => prompt.includes("SHOP EVIDENCE:"))).toBe(true)
+  expect(forks.some(prompt => prompt.includes("EVIDENCE: find claims nothing"))).toBe(false)
+
+  const ui = await $.ui.mount(PANE)
+  await ui.press({ key: "agent:evidence" })
+  expect(config(disk)).toEqual(expect.objectContaining({ disabled: [], disabledIn: { "-work-shop": ["evidence"] } }))
+  await ui.unmount()
+})
+
+test("the panel copies this repo's folder path and hands it to the skill when creating a side agent", async ($, on) => {
+  const { copied, submitted } = world(on)
+  const ui = await $.ui.mount(PANE)
+
+  await ui.press({ key: "copy-repo" })
+  expect(copied).toEqual([SHOP_AGENTS])
+
+  await ui.input({ key: "create", text: "changes that break the public API" })
+  expect(submitted[0]).toContain(AGENTS)
+  expect(submitted[0]).toContain(SHOP_AGENTS)
+  await ui.unmount()
+})
+
+const BLOG_AGENTS = "/Users/someone/.claude/just-so-you-know/projects/-work-blog/agents"
+
+test("a user side agent turned off is off in every repo, and a project one only in its own", async ($, on) => {
+  const { forks } = world(on, {
+    files: {
+      ...EVIDENCE_FILE,
+      [`${BLOG_AGENTS}/api-breaks.md`]: REPO_FILE[`${SHOP_AGENTS}/api-breaks.md`],
+      [CONFIG]: JSON.stringify({ disabled: ["evidence"], disabledIn: { "-work-shop": ["api-breaks"] } }),
+    },
+    reply: () => NONE,
+    root: "/work/blog",
+    gitDirs: { "/work/blog": "/work/blog/.git" },
+  })
+  await $.session.start({ cwd: "/work/blog", surface: "terminal", isInteractive: true })
+
+  await step($, "t1", 6)
+  await eventually($, () => forks.length === 2)
+  await settle()
+  expect(forks.length).toBe(2)
+  expect(forks.some(prompt => prompt.includes("API BREAKS:"))).toBe(true)
+  expect(forks.some(prompt => prompt.includes("EVIDENCE:"))).toBe(false)
+
+  const ui = await $.ui.mount(PANE)
+  expect((await ui.find({ type: "Button", key: "agent:evidence" }))?.text).toMatch(/○ off/)
+  expect((await ui.find({ type: "Button", key: "agent:api-breaks" }))?.text).toMatch(/● on/)
+  await ui.unmount()
+})
+
+test("the panel lists user and project side agents apart, and says when the repo has none", async ($, on) => {
+  world(on, { files: EVIDENCE_FILE })
+  const ui = await $.ui.mount(PANE)
+
+  expect(await ui.find({ type: "Text", text: /User every repo/ })).toBeDefined()
+  expect(await ui.find({ type: "Text", text: /Project shop/ })).toBeDefined()
+  expect(await ui.find({ type: "Text", text: /No side agents for this repo yet/ })).toBeDefined()
   await ui.unmount()
 })
