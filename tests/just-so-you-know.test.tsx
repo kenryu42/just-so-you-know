@@ -166,6 +166,20 @@ test("a check on the 6th step shares the note with the main agent without asking
   expect(forks.length).toBe(1)
 })
 
+test("a note shared in a session the mod joined after it started still names the project in the report", async ($, on) => {
+  const { disk, findings } = world(on, { root: "/work/shop/hooks", gitDirs: { "/work/shop/hooks": "/work/shop/.git" }, run: () => ({ exitCode: 0 }) })
+
+  await step($, "t1", 6)
+  await eventually($, () => findings().length === 1)
+  const ui = await $.ui.mount(PANE)
+  await ui.press({ key: "report" })
+
+  const page = disk.get("/Users/someone/.claude/just-so-you-know/report.html") ?? ""
+  expect(page).toContain('<span class="project">shop</span>')
+  expect(page).not.toContain("unknown project")
+  await ui.unmount()
+})
+
 test("the main agent's reaction is judged, and checks resume once it is", async ($, on) => {
   const { forks, findings } = world(on)
   const judged: string[] = []

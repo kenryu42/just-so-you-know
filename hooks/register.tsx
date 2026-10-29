@@ -105,7 +105,6 @@ const checking = new Set<string>()
 const judging = new Set<string>()
 const ended = new Set<string>()
 const sharedTurns = new Map<string, string>()
-const projects = new Map<string, string>()
 
 const BROWSER_OPENERS = [["open"], ["xdg-open"], ["cmd", "/c", "start", ""]]
 
@@ -181,6 +180,8 @@ const repoRoot = async ($: EngineInterface) => {
 
 const repoKey = async ($: EngineInterface) => (await repoRoot($)).replace(/[^a-zA-Z0-9]/g, "-")
 
+const repoName = async ($: EngineInterface) => (await repoRoot($)).split(/[\\/]/).filter(Boolean).at(-1) ?? ""
+
 // Kept in the home folder like the rest, so a repository can't add side agents of its own.
 const repoAgentsDir = async ($: EngineInterface, dir: string) => `${dir}/${REPOS_DIR}/${await repoKey($)}/agents`
 
@@ -245,6 +246,7 @@ async function check($: EngineInterface, sessionId: string, turnId: string, step
     ready.map(agent => $.model.fork({ prompt: proposePrompt(agent.job, seen, known) }).catch(() => undefined)),
   )
   const taken = new Set([...seen, ...known].map(lineKey))
+  const project = await repoName($)
   const shared: Finding[] = []
   ready.forEach((agent, at) => {
     const reply = replies[at]
@@ -255,7 +257,7 @@ async function check($: EngineInterface, sessionId: string, turnId: string, step
     shared.push({
       id: `${sessionId}:${turnId}:${step}:${agent.name}`,
       sessionId,
-      project: projects.get(sessionId) ?? "",
+      project,
       turnId,
       step,
       agent: agent.name,
@@ -325,7 +327,6 @@ async function judge($: EngineInterface, sessionId: string) {
 
 export const register: Register = on => {
   on("session.start", async ($, e, next) => {
-    projects.set(await $.session.id(), e.cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "")
     await $.command.register({
       name: "jsyk",
       description: "Just So You Know: side agents, check interval, a new side agent, and the report",
@@ -386,7 +387,7 @@ export const register: Register = on => {
     const Input = e.surface !== "mobile" && "Input" in elements ? elements.Input : undefined
     const dir = (await dataDir($)) ?? `~/${DATA_DIR}`
     const repo = await repoKey($)
-    const repoName = (await repoRoot($)).split(/[\\/]/).filter(Boolean).at(-1) ?? "this repo"
+    const thisRepo = (await repoName($)) || "this repo"
     const repoDir = await repoAgentsDir($, dir)
     const config = await readConfig($)
     const agents = await allAgents($)
@@ -457,7 +458,7 @@ export const register: Register = on => {
             <Box key={`scope:${scope}`} flexDirection="column">
               <Text>
                 <Text bold>{scope === "user" ? "User" : "Project"}</Text>{" "}
-                <Text dimColor>{scope === "user" ? "every repo" : repoName}</Text>
+                <Text dimColor>{scope === "user" ? "every repo" : thisRepo}</Text>
               </Text>
               {listed.map(agent => {
                 const own = findings.filter(finding => finding.agent === agent.name)
